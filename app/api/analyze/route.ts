@@ -2,74 +2,148 @@ import { NextResponse } from "next/server";
 import Groq from "groq-sdk";
 
 export async function POST(req: Request) {
+  // 🔒 Check API key
   if (!process.env.GROQ_API_KEY) {
-    return NextResponse.json({ error: "GROQ_API_KEY not set" }, { status: 500 });
+    return NextResponse.json(
+      { error: "GROQ_API_KEY not set" },
+      { status: 500 }
+    );
   }
 
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  const groq = new Groq({
+    apiKey: process.env.GROQ_API_KEY,
+  });
 
   try {
     const { name, skills, goal, categories } = await req.json();
 
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
+
       messages: [
         {
           role: "system",
-          content: `You are an expert career coach and skill gap analyst. 
-You MUST respond with valid JSON only. No markdown, no explanation, no code blocks. 
-Just raw JSON that can be parsed directly.`,
+          content: `
+You are a highly strict, expert AI career coach.
+
+CRITICAL RULES:
+- Always generate UNIQUE, PERSONALIZED responses
+- NEVER give generic answers
+- Analyze based on user input deeply
+- Adapt output based on skill level (beginner/intermediate/advanced)
+
+OUTPUT RULES:
+- Return ONLY valid JSON
+- No markdown, no explanation, no extra text
+          `,
         },
         {
           role: "user",
-          content: `Analyze skill gaps for ${name}.
-Current skills: ${skills}
-Target goal: ${goal}
-Skill categories to evaluate: ${categories || "Programming, Tools, Soft Skills, Domain Knowledge, AI/ML"}
+          content: `
+User Profile:
+Name: ${name}
+Current Skills: ${skills}
+Target Goal: ${goal}
+Categories: ${categories || "Programming, Tools, Soft Skills, Domain Knowledge, AI/ML"}
 
-Return this exact JSON structure (fill in realistic data based on the input):
+TASK:
+Analyze skill gaps VERY SPECIFICALLY.
+
+IMPORTANT:
+- Skills MUST depend on goal (AI Engineer ≠ Frontend Developer)
+- Roadmap must match user's level
+- Avoid repeating same skills for different inputs
+
+Return EXACT JSON:
+
 {
-  "summary": "2-3 sentence overview of the person's profile and main gaps",
-  "overallReadiness": 42,
+  "summary": "2-3 line personalized analysis",
+  "overallReadiness": number,
   "skillScores": [
-    { "skill": "Skill Name", "current": 6, "required": 9, "category": "Category Name", "gap": 3 }
+    {
+      "skill": "Specific skill",
+      "current": number,
+      "required": number,
+      "category": "Category",
+      "gap": number
+    }
   ],
   "roadmap": [
-    { "step": 1, "title": "Step title", "description": "What to do and why", "duration": "2 weeks", "priority": "high" }
+    {
+      "step": number,
+      "title": "Step title",
+      "description": "Actionable explanation",
+      "duration": "time",
+      "priority": "high | medium | low"
+    }
   ],
   "resources": [
-    { "title": "Resource name", "url": "https://...", "type": "course", "free": true }
+    {
+      "title": "Real resource",
+      "url": "https://...",
+      "type": "course | docs | video | book | community",
+      "free": true
+    }
   ],
-  "strengths": ["strength 1", "strength 2"],
-  "quickWins": ["Quick actionable tip 1", "Quick actionable tip 2"]
+  "strengths": ["based on user skills"],
+  "quickWins": ["immediate actions"]
 }
 
-Rules:
-- skillScores: 5-8 skills covering the different categories, current/required on scale 0-10, gap = required - current
-- overallReadiness: 0-100 percentage based on average of current/required ratios
-- roadmap: 4-6 steps in logical learning order
-- resources: 4-6 real, accurate URLs (Coursera, fast.ai, docs, YouTube channels etc)
-- priority: "high", "medium", or "low"
-- resource type: "course", "docs", "book", "video", or "community"`,
+STRICT:
+- skillScores: 5–8 real skills
+- roadmap: 4–6 steps
+- resources: real links
+          `,
         },
       ],
-      temperature: 0.7,
+
+      temperature: 0.9,
+      top_p: 0.9,
       max_tokens: 2000,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
 
     let parsed;
+
     try {
+      // Try direct parse
       parsed = JSON.parse(raw);
     } catch {
-      const match = raw.match(/\{[\s\S]*\}/);
-      parsed = match ? JSON.parse(match[0]) : { error: "Failed to parse AI response" };
+      try {
+        // Extract JSON if model adds extra text
+        const match = raw.match(/\{[\s\S]*\}/);
+        parsed = match ? JSON.parse(match[0]) : null;
+      } catch {
+        parsed = null;
+      }
+    }
+
+    // 🧠 Fallback (VERY IMPORTANT)
+    if (!parsed) {
+      return NextResponse.json({
+        data: {
+          summary: "AI response parsing failed. Try again.",
+          overallReadiness: 0,
+          skillScores: [],
+          roadmap: [],
+          resources: [],
+          strengths: [],
+          quickWins: [],
+        },
+      });
     }
 
     return NextResponse.json({ data: parsed });
+
   } catch (error: any) {
-    console.error("Groq error:", error);
-    return NextResponse.json({ error: error.message ?? "Something went wrong" }, { status: 500 });
+    console.error("🔥 Groq error:", error);
+
+    return NextResponse.json(
+      {
+        error: error.message || "Something went wrong",
+      },
+      { status: 500 }
+    );
   }
 }
